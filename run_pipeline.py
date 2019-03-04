@@ -1,14 +1,12 @@
 #!/usr/bin/python
 
-import sys, time, os, pdb, argparse, pickle, subprocess
+import time, os, pdb, argparse, subprocess
 import numpy as np
 import tensorflow as tf
-import cv2
-import scenedetect
+from skimage.transform import resize
+import imageio
 
 from scipy.interpolate import interp1d
-from utils import label_map_util
-from scipy.io import wavfile
 from scipy import signal
 
 # ========== ========== ========== ==========
@@ -16,17 +14,14 @@ from scipy import signal
 # ========== ========== ========== ==========
 
 parser = argparse.ArgumentParser(description = "FaceTracker");
-parser.add_argument('--data_dir', type=str, default='/dev/shm', help='Output direcotry');
-parser.add_argument('--videofile', type=str, default='', help='Input video file');
-parser.add_argument('--reference', type=str, default='', help='Name of the video');
+parser.add_argument('--data_dir', type=str, default='data/', help='Output direcotry');
+parser.add_argument('videofile', type=str, default='', help='Input video file');
 parser.add_argument('--crop_scale', type=float, default=0.5, help='Scale bounding box');
-parser.add_argument('--min_track', type=int, default=100, help='Minimum facetrack duration');
+parser.add_argument('--min_track', type=int, default=30, help='Minimum facetrack duration');
 opt = parser.parse_args();
 
-setattr(opt,'avi_dir',os.path.join(opt.data_dir,'pyavi'))
-setattr(opt,'tmp_dir',os.path.join(opt.data_dir,'pytmp'))
-setattr(opt,'work_dir',os.path.join(opt.data_dir,'pywork'))
-setattr(opt,'crop_dir',os.path.join(opt.data_dir,'pycrop'))
+base_name = os.path.splitext(os.path.basename(opt.videofile))[0]
+setattr(opt,'out_dir', os.path.join(opt.data_dir, 'out', base_name))
 
 # ========== ========== ========== ==========
 # # IOU FUNCTION
@@ -52,7 +47,7 @@ def bb_intersection_over_union(boxA, boxB):
 # # FACE TRACKING
 # ========== ========== ========== ==========
 
-def track_shot(opt,scenefaces):
+def track_shot(opt, scenefaces):
 
   iouThres  = 0.5     # Minimum IOU between consecutive face detections
   numFail   = 3       # Number of missed detections allowed
@@ -75,8 +70,6 @@ def track_shot(opt,scenefaces):
         else:
           break
 
-    
-
     if track == []:
       break
     elif len(track) > opt.min_track:
@@ -94,26 +87,21 @@ def track_shot(opt,scenefaces):
 
       if np.mean(bboxes_i[:,3]-bboxes_i[:,1]) > minSize:
         tracks.append([frame_i,bboxes_i])
-
-
   return tracks
 
 # ========== ========== ========== ==========
 # # VIDEO CROP AND SAVE
 # ========== ========== ========== ==========
         
-def crop_video(opt,track,cropfile):
+def crop_video(opt,track):
 
-  cap = cv2.VideoCapture(os.path.join(opt.avi_dir,opt.reference,'video.avi'))
+  reader = imageio.get_reader(os.path.join(opt.out_dir, 'video.avi'))
 
-  total_frames = cap.get(7)
-  cap.set(1,track[0][0]) # CHANGE THIS !!!
+  fps = reader.get_meta_data()['fps']
+  cropped_file = os.path.join(opt.out_dir, 'cropped')
+  vOut = imageio.get_writer(cropped_file + 't.avi', fps=fps)
 
-  fourcc = cv2.VideoWriter_fourcc(*'XVID')
-  vOut = cv2.VideoWriter(cropfile+'t.avi', fourcc, cap.get(5), (224,224))
-
-  fw = cap.get(3)
-  fh = cap.get(4)
+  fw, fh = reader.get_meta_data()['size']
 
   dets = [[], [], []]
 
@@ -135,46 +123,48 @@ def crop_video(opt,track,cropfile):
     bs  = det[0]            # Detection box size
     bsi = int(bs*(1+2*cs))  # Pad videos by this amount 
 
-    ret, frame = cap.read()
-    
+    try:
+        frame = reader.get_next_data()
+    except:
+        break
+
     frame = np.pad(frame,((bsi,bsi),(bsi,bsi),(0,0)), 'constant', constant_values=(0,0))
     my  = det[2]+bsi  # BBox center Y
     mx  = det[1]+bsi  # BBox center X
 
     face = frame[int(my-bs):int(my+bs*(1+2*cs)),int(mx-bs*(1+cs)):int(mx+bs*(1+cs))]
-    
-    vOut.write(cv2.resize(face,(224,224)))
 
-  audiotmp  = os.path.join(opt.tmp_dir,opt.reference,'audio.wav')
-  audiostart  = track[0][0]/cap.get(5)
-  audioend  = (track[0][-1]+1)/cap.get(5)
+    resized = resize(face,(224,224), mode='reflect', anti_aliasing=True)
+    vOut.append_data((255*resized).round().clip(0,255).astype(np.uint8))
 
-  cap.release()
-  vOut.release()
+  audiotmp  = os.path.join(opt.out_dir, 'audio.wav')
+  audiostart  = track[0][0]/fps
+  audioend  = (track[0][-1]+1)/fps
+
+  vOut.close()
 
   # ========== CROP AUDIO FILE ==========
 
-  command = ("ffmpeg -y -i %s -ac 1 -vn -acodec pcm_s16le -ar 16000 -ss %.3f -to %.3f %s" % (os.path.join(opt.avi_dir,opt.reference,'video.avi'),audiostart,audioend,audiotmp)) #-async 1 
+  command = ("ffmpeg -y -i %s -ac 1 -vn -acodec pcm_s16le -ar 16000 -ss %.3f -to %.3f %s" %
+             (os.path.join(opt.out_dir, 'video.avi'),audiostart,audioend,audiotmp)) #-async 1
   output = subprocess.call(command, shell=True, stdout=None)
 
   if output != 0:
     pdb.set_trace()
 
-  sample_rate, audio = wavfile.read(audiotmp)
+  # sample_rate, audio = wavfile.read(audiotmp)
 
   # ========== COMBINE AUDIO AND VIDEO FILES ==========
 
-  command = ("ffmpeg -y -i %st.avi -i %s -c:v copy -c:a copy %s.avi" % (cropfile,audiotmp,cropfile)) #-async 1 
+  command = ("ffmpeg -y -i %st.avi -i %s -c:v copy -c:a copy %s.avi" % (cropped_file ,audiotmp, cropped_file)) #-async 1
   output = subprocess.call(command, shell=True, stdout=None)
 
   if output != 0:
     pdb.set_trace()
 
-  print('Written %s'%cropfile)
+  print('Written %s'%cropped_file)
 
-  os.remove(cropfile+'t.avi')
-
-  return [track,dets]
+  os.remove(cropped_file+'t.avi')
 
 
 # ========== ========== ========== ==========
@@ -183,26 +173,13 @@ def crop_video(opt,track,cropfile):
 
 def inference_video(opt):
 
-
   # Path to frozen detection graph. This is the actual model that is used for the object detection.
   PATH_TO_CKPT = './protos/frozen_inference_graph_face.pb'
 
-  # List of the strings that is used to add correct label for each box.
-  PATH_TO_LABELS = './protos/face_label_map.pbtxt'
-
-  NUM_CLASSES = 2
   MIN_CONF = 0.3
 
-  label_map = label_map_util.load_labelmap(PATH_TO_LABELS)
-  categories = label_map_util.convert_label_map_to_categories(label_map, max_num_classes=NUM_CLASSES, use_display_name=True)
-  category_index = label_map_util.create_category_index(categories)
-
-  def load_image_into_numpy_array(image):
-    (im_width, im_height) = image.size
-    return np.array(image.getdata()).reshape(
-        (im_height, im_width, 3)).astype(np.uint8)
-
-  cap = cv2.VideoCapture(os.path.join(opt.avi_dir,opt.reference,'video.avi'))
+  reader = imageio.get_reader(os.path.join(opt.out_dir, 'video.avi'))
+  print(reader.get_meta_data())
 
   detection_graph = tf.Graph()
   with detection_graph.as_default():
@@ -220,12 +197,10 @@ def inference_video(opt):
     with tf.Session(graph=detection_graph, config=config) as sess:
       frame_num = 0;
       while True:
-        
-        ret, image = cap.read()
-        if ret == 0:
+        try:
+            image_np = reader.get_next_data()
+        except:
             break
-
-        image_np = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         image_np_expanded = np.expand_dims(image_np, axis=0)
         image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
@@ -250,86 +225,24 @@ def inference_video(opt):
           if score[index] > MIN_CONF:
             dets[-1].append([frame_num, boxes[0][index].tolist(),score[index]])
 
-        print('%s-%05d; %d dets; %.2f Hz' % (os.path.join(opt.avi_dir,opt.reference,'video.avi'),frame_num,len(dets[-1]),(1/elapsed_time))) 
+        print('%s-%05d; %d dets; %.2f Hz' %
+              (os.path.join(opt.out_dir,'video.avi'),
+               frame_num,len(dets[-1]),(1/elapsed_time)))
         frame_num += 1
 
-      cap.release()
-
-      savepath = os.path.join(opt.work_dir,opt.reference,'faces.pckl')
-
-      with open(savepath, 'wb') as fil:
-        pickle.dump(dets, fil)
-
   return dets
-
-# ========== ========== ========== ==========
-# # SCENE DETECTION
-# ========== ========== ========== ==========
-
-def scene_detect(opt):
-
-  scene_list = []
-
-  detector_list = [scenedetect.detectors.ContentDetector(threshold = 32)]
-
-  video_framerate, frames_read = scenedetect.detect_scenes_file(os.path.join(opt.avi_dir,opt.reference,'video.avi'), scene_list, detector_list)
-
-  savepath = os.path.join(opt.work_dir,opt.reference,'scene.pckl')
-
-  with open(savepath, 'wb') as fil:
-    pickle.dump([frames_read, scene_list], fil)
-
-  print('%s - scenes detected %d from %d frames'%(os.path.join(opt.avi_dir,opt.reference,'video.avi'),len(scene_list),frames_read))
-
-  return [frames_read, scene_list]
-    
 
 # ========== ========== ========== ==========
 # # EXECUTE DEMO
 # ========== ========== ========== ==========
 
-if not(os.path.exists(os.path.join(opt.work_dir,opt.reference))):
-  os.makedirs(os.path.join(opt.work_dir,opt.reference))
+if not os.path.exists(opt.out_dir):
+  os.makedirs(opt.out_dir)
 
-if not(os.path.exists(os.path.join(opt.crop_dir,opt.reference))):
-  os.makedirs(os.path.join(opt.crop_dir,opt.reference))
-
-if not(os.path.exists(os.path.join(opt.avi_dir,opt.reference))):
-  os.makedirs(os.path.join(opt.avi_dir,opt.reference))
-
-if not(os.path.exists(os.path.join(opt.tmp_dir,opt.reference))):
-  os.makedirs(os.path.join(opt.tmp_dir,opt.reference))
-
-command = ("ffmpeg -y -i %s -qscale:v 4 -async 1 -r 25 -deinterlace %s" % (opt.videofile,os.path.join(opt.avi_dir,opt.reference,'video.avi'))) #-async 1 
+command = ("ffmpeg -y -i %s -qscale:v 4 -async 1 -r 25 -deinterlace %s" %
+           (opt.videofile, os.path.join(opt.out_dir, 'video.avi')))
 output = subprocess.call(command, shell=True, stdout=None)
 faces = inference_video(opt)
 
-scene = scene_detect(opt)
-
-# with open(os.path.join(opt.work_dir,opt.reference,'scene.pckl'), 'r') as fil:
-#   scene = pickle.load(fil)
-
-# with open(os.path.join(opt.work_dir,opt.reference,'faces.pckl'), 'r') as fil:
-#   faces = pickle.load(fil)
-
-scene[1]  = scene[1]+[scene[0]]
-
-prev_shot = 0
-alltracks = []
-vidtracks = []
-
-for end_shot in scene[1]:
-
-  if ( len(faces)==scene[0] ) and ( end_shot-prev_shot >= opt.min_track ) :
-    alltracks.extend(track_shot(opt,faces[prev_shot:end_shot-1]))
-
-  prev_shot = end_shot
-
-for ii, track in enumerate(alltracks):
-
-  vidtracks.append(crop_video(opt,track,os.path.join(opt.crop_dir,opt.reference,'%05d'%ii)))
-
-savepath = os.path.join(opt.work_dir,opt.reference,'tracks.pckl')
-
-with open(savepath, 'wb') as fil:
-  pickle.dump(vidtracks, fil)
+tracks = track_shot(opt, faces)
+crop_video(opt, tracks[0])

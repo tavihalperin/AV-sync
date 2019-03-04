@@ -1,67 +1,60 @@
-# SyncNet
+# AVSnap
 
-This repository contains the demo for the audio-to-video synchronisation network (SyncNet). This network can be used for audio-visual synchronisation tasks including: 
-1. Removing temporal lags between the audio and visual streams in a video;
-2. Determining who is speaking amongst multiple faces in a video. 
+This repository contains demo code for the paper <a href = "https://arxiv.org/abs/1808.06250">Dynamic Temporal Alignment of Speech to Lips </a>
+The repository forks the demo for the audio-to-video synchronisation network (<a href = "http://www.robots.ox.ac.uk/~vgg/software/lipsync/">SyncNet</a>).
 
-The model can be used for research purposes under <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution License</a>. Please cite the paper below if you make use of the software. 
+The model and code can be used for research purposes under <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution License</a>.
+Please cite the papers below if you make use of the software.
 
 ## Prerequisites
-The following packages are required to run the SyncNet demo:
+The following packages are required:
 ```
-python (2.7.12)
 pytorch (0.4.0)
 numpy (1.14.3)
 scipy (1.0.1)
-opencv-python (3.4.0) - via opencv-contrib-python
 python_speech_features (0.6)
 cuda (8.0)
 ffmpeg (3.4.2)
-```
-
-In addition to above, these are required to run the full pipeline:
-```
 tensorflow (1.2, 1.4)
-pyscenedetect (0.3.5) - does not work with 0.4
+scikit-image (0.14,1)
+imageio (2.2.0)
 ```
 
 The demo has been tested with the package versions shown above, but may also work on other versions.
 
 ## Demo
 
-SyncNet demo:
-```
-python demo_syncnet.py --videofile data/example.avi --tmp_dir /path/to/temp/directory
-```
-
-Check that this script returns:
-```
-AV offset:      3 
-Min dist:       5.353
-Confidence:     10.021
-```
-
-Full pipeline:
+First, download face detection and SyncNet models
 ```
 sh download_model.sh
-python run_pipeline.py --videofile /path/to/video.mp4 --reference name_of_video --data_dir /path/to/output
-python run_syncnet.py --videofile /path/to/video.mp4 --reference name_of_video --data_dir /path/to/output
-python run_visualise.py --videofile /path/to/video.mp4 --reference name_of_video --data_dir /path/to/output
 ```
+
+To run the demo, aligning audio from video2.avi to video from video.avi
+```
+python run_pipeline.py data/video1.avi
+python run_pipeline.py data/video2.avi
+python align_audio.py data/video1.avi data/video2.avi --modality=all
+```
+
+The alignment will be computed based on both video and audio of the input videos.
+You can use only one of the modalities by changing the flag ```--modality``` to one of ```va/aa/av/vv```, the first letter indicates which modality is used from the first input, and the last letter indicates which is used from the second.
 
 Outputs:
 ```
-$DATA_DIR/pycrop/$REFERENCE/*.avi - cropped face tracks
-$DATA_DIR/pywork/$REFERENCE/offsets.txt - audio-video offset values
-$DATA_DIR/pyavi/$REFERENCE/video_out.avi - output video (as shown below)
+data/out/video1_video2/modality_all.mp4
 ```
-<p align="center">
-  <img src="img/ex1.jpg" width="45%"/>
-  <img src="img/ex2.jpg" width="45%"/>
-</p>
 
 ## Publications
- 
+
+```
+@inproceedings{halperin19dynamic,
+  title     =   {Dynamic Temporal Alignment of Speech to Lips‏},
+  author    =   {Halperin, Tavi and Ephrat, Ariel and Peleg, Shmuel},
+  booktitle =   {2018 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
+  year      =   {2019},
+}
+```
+SyncNet is taken from:
 ```
 @InProceedings{Chung16a,
   author       = "Chung, J.~S. and Zisserman, A.",
