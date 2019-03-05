@@ -29,7 +29,7 @@ First, download face detection and SyncNet models
 sh download_model.sh
 ```
 
-To run the demo, aligning audio from video2.avi to video from video.avi
+To run the demo, aligning audio from video2.avi to video from video1.avi
 ```
 python run_pipeline.py data/video1.avi
 python run_pipeline.py data/video2.avi
