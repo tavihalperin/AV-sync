@@ -88,7 +88,7 @@ def run_batch_vid(model, im, ii, lastframe):
     im_batch = [ im[:,:,vframe:vframe+5,:,:] for vframe in range(ii,min(lastframe,ii+batch_size)) ]
     im_in = torch.cat(im_batch,0)
     if cuda:
-        im_in = im_in.cuda()_
+        im_in = im_in.cuda()
     im_out  = model.__S__.forward_lip(im_in)
     return im_out.data.cpu()
     
@@ -96,7 +96,7 @@ def run_aud_batch(model, cc, ii, lastframe):
     cc_batch = [ cc[:,:,:,vframe*4:vframe*4+20] for vframe in range(ii,min(lastframe,ii+batch_size)) ]
     cc_in = torch.cat(cc_batch,0)
     if cuda:
-        cc_in = cc_in.cuda()_
+        cc_in = cc_in.cuda()
     cc_out  = model.__S__.forward_aud(cc_in)
     return cc_out.data.cpu()
     
