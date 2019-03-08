@@ -4,7 +4,7 @@ import numpy as np
 from scipy.ndimage.filters import gaussian_filter
 import SyncNetInstance
 import avsnap_utils as utils
-
+import imageio
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -75,6 +75,34 @@ def process_data():
     data['spec1'] = utils.aud2spec(data['aud1'])
     data['spec2'] = utils.aud2spec(data['aud2'])
     return data
+
+
+def write_mix(data, out_folder):
+    audio_mix = np.zeros(max(len(data['aud1']), len(data['aud2'])))
+    audio_mix[:len(data['aud1'])] += data['aud1']
+    audio_mix[:len(data['aud2'])] += data['aud2']
+    wavfile.write('tmp.wav', rate=utils.SR, data=audio_mix/audio_mix.max())
+
+    num_frames = max(len(data['vid1']), len(data['vid2']))
+    frame_size1 = np.array(data['vid1'][0].shape[:2])
+    frame_size2 = np.array(data['vid2'][0].shape[:2])
+    pair_frame_size = (max(frame_size1[0], frame_size2[0]), frame_size1[1]+frame_size2[1], 3)
+    writer = imageio.get_writer('tmp.mp4', fps=25)
+    for i in range(num_frames):
+        pair = np.zeros(pair_frame_size, dtype=np.uint8)
+        if i < len(data['vid1']):
+            pair[:frame_size1[0], :frame_size1[1]] = data['vid1'][i]
+        if i < len(data['vid2']):
+            pair[:frame_size2[0], frame_size1[1]:frame_size1[1]+frame_size2[1]] = data['vid2'][i]
+        writer.append_data(pair)
+    writer.close()
+
+    command = (
+        'ffmpeg -y -i tmp.mp4 -i tmp.wav -c:v copy -c:a copy -map 0:v:0 -map 1:a:0 -shortest %s' %
+        os.path.join(out_folder, 'mix.avi'))
+    utils.run_command(command)
+    os.remove('tmp.wav')
+    os.remove('tmp.mp4')
 
 
 def warp_audio(spec, vid, dp_path, base_file):
@@ -207,6 +235,7 @@ def main():
     dp_path = np.concatenate([[0,1], dp_path])
     dp_path = smooth_flow(dp_path, data['out_base_file'])
 
+    write_mix(data, out_folder)
     warp_audio(data['spec2'], data['vid1'], dp_path, data['out_base_file'])
 
 
