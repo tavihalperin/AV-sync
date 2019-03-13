@@ -92,39 +92,47 @@ def run_batch_vid(model, im, ii, lastframe):
     im_out  = model.__S__.forward_lip(im_in)
     return im_out.data.cpu()
     
-def run_aud_batch(model, cc, ii, lastframe):
-    cc_batch = [ cc[:,:,:,vframe*4:vframe*4+20] for vframe in range(ii,min(lastframe,ii+batch_size)) ]
+def run_aud_batch(model, cc, ii, lastframe, every_frame):
+    if every_frame:
+        cc_batch = [cc[:, :, :, vframe:vframe + 20] for vframe in range(ii, min(lastframe, ii+batch_size))]
+    else:
+        cc_batch = [cc[:, :, :, vframe*4:vframe*4 + 20] for vframe in range(ii, min(lastframe, ii+batch_size))]
     cc_in = torch.cat(cc_batch,0)
     if cuda:
         cc_in = cc_in.cuda()
     cc_out  = model.__S__.forward_aud(cc_in)
     return cc_out.data.cpu()
     
-def aud2emb(aud, model):
+def aud2emb(aud, model, every_frame=False):
     if type(aud) == str:
         aud = read_aud(aud)
-    lastframe = int(aud.size/SR*FPS) - 6
+    lastframe = np.round(aud.size/SR*FPS).astype(np.int) - 6
+    if every_frame:
+        lastframe *= 4
     y_tensor = aud2tensor(aud)
-
     cc_feat = torch.cat(
-        [run_aud_batch(model, y_tensor, i, lastframe) 
+        [run_aud_batch(model, y_tensor, i, lastframe, every_frame=every_frame)
         for i in range(0, lastframe, batch_size)], 0)
-    
     return aud, cc_feat.numpy()
 
-def vid2emb(images, model):
+def vid2emb(images, model, every_frame=False):
     if type(images) == str:
         images = read_vid(images)
     assert np.all(np.array([224,224,3]) == images[0].shape)
     lastframe = len(images) - 6
     images_tensor = im2tensor(images)
 
-    im_feat = torch.cat(
-        [run_batch_vid(model, images_tensor, i, lastframe) 
-        for i in range(0,lastframe,batch_size)], 
-        0)
+    im_feat = np.concatenate(
+        [run_batch_vid(model, images_tensor, i, lastframe)
+        for i in range(0,lastframe,batch_size)])
 
-    return images, im_feat.numpy()
+    if every_frame:
+        coordinates = np.meshgrid(np.arange(im_feat.shape[0]*4), np.arange(im_feat.shape[1]))
+        coordinates = np.stack(coordinates).astype(np.float32).transpose((0,2,1))
+        coordinates[0] /= 4
+        im_feat = map_coordinates(im_feat, coordinates, order=1)
+
+    return images, im_feat
 
 def run_command(command, verbose=True):
     print('runing: ', command if verbose else '...' , end=' ')

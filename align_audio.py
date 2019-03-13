@@ -54,8 +54,8 @@ def process_data():
     vid2_cropped = os.path.join('data/out', data['vid2_base_name'], 'cropped.avi')
     if opt.modality == 'all':
         def get_audio_and_video_embeddings(vid, aud):
-            vid_emb = utils.vid2emb(vid, model)[1]
-            aud_emb = utils.aud2emb(aud, model)[1]
+            vid_emb = utils.vid2emb(vid, model, True)[1]
+            aud_emb = utils.aud2emb(aud, model, True)[1]
             min_len = min(len(vid_emb), len(aud_emb))
             return [vid_emb[:min_len], aud_emb[:min_len]]
 
@@ -64,13 +64,13 @@ def process_data():
 
     else:
         if opt.modality[0] == 'v':
-            data['emb1'] = utils.vid2emb(vid1_cropped, model)[1]
+            data['emb1'] = utils.vid2emb(vid1_cropped, model, True)[1]
         else:
-            data['emb1'] = utils.aud2emb(data['aud1'], model)[1]
+            data['emb1'] = utils.aud2emb(data['aud1'], model, True)[1]
         if opt.modality[1] == 'v':
-            data['emb2'] = utils.vid2emb(vid2_cropped, model)[1]
+            data['emb2'] = utils.vid2emb(vid2_cropped, model, True)[1]
         else:
-            data['emb2'] = utils.aud2emb(data['aud2'], model)[1]
+            data['emb2'] = utils.aud2emb(data['aud2'], model, True)[1]
 
     data['spec1'] = utils.aud2spec(data['aud1'])
     data['spec2'] = utils.aud2spec(data['aud2'])
@@ -125,27 +125,8 @@ def warp_audio(spec, vid, dp_path, base_file):
     utils.run_command(command)
     os.remove(warped_aud_file)
 
-    # create baseline stretched audio
-    # linear_path = np.linspace(0, spec.shape[1] - 1, dp_path.size)
-    # streched_spec = utils.phase_vocoder(spec, linear_path)
-
-    # aud_streched = utils.griffin_lim(streched_spec, opt.griffin_lim_iterations)
-    # streched_aud_file = utils.data_dir + 'tmp_streched.wav'
-    # wavfile.write(streched_aud_file, rate=utils.SR, data=aud_streched / aud_streched.max())
-
-    # command = (
-    #     'ffmpeg -y -i %s -i %s -c:v copy -c:a copy -map 0:v:0 -map 1:a:0 -shortest %s' %
-    #     (opt.vid1, streched_aud_file, base_file + '_streched' + '.avi'))
-    # utils.run_command(command)
-    # os.remove(streched_aud_file)
-
-
 
 def smooth_flow(path, prefix):
-
-    path = utils.resize_vec(path - np.arange(path.size),
-        utils.WINDOWS_PER_FRAME * path.size)
-
     factor = utils.WINDOWS_PER_SECOND
     max_diff = 0
     sigma = 1
@@ -155,21 +136,14 @@ def smooth_flow(path, prefix):
         sigma *= 1.5 
         path_smoothed = utils.stabilizeSequence(path, sigma)
         max_diff = np.abs(path_smoothed/factor - path/factor).max()
-        print ('s',sigma, max_diff)
     print('max smoothness (seconds): ', max_diff)
-    print('sigma', sigma)
 
     path_smoothed = gaussian_filter(path_smoothed, gaussian_sigma)
-    print('max path diff in seconds (after smoothing): ', 
-        np.abs(path/factor - path_smoothed/factor).max())
-    print('(found at)): ', 
-        np.argmax(np.abs(path/factor - path_smoothed/factor)))
 
     plt.figure()
     plt.plot(path / factor)
     plt.plot(path_smoothed / factor)
     plt.savefig(prefix + '_dp_smooth.png', dpi=150)
-    print(prefix + '_dp_smooth.png')
     return path_smoothed + np.arange(path_smoothed.size)
 
 
@@ -211,7 +185,6 @@ def save_dp_images(dp_mat, dp_path, data):
 def main():
 
     data = process_data()
-
     out_folder = os.path.join(utils.data_dir,
             'out/%s_%s' % (data['vid1_base_name'], data['vid2_base_name']))
     if not os.path.exists(out_folder):
@@ -233,6 +206,9 @@ def main():
             dp_path.append(path[i, 1])
     dp_path = np.array(dp_path) + 2 # embeddings refer to the middle frame
     dp_path = np.concatenate([[0,1], dp_path])
+
+    new_size = utils.WINDOWS_PER_FRAME/4 * dp_path.size
+    dp_path = utils.resize_vec(dp_path - np.arange(dp_path.size),new_size)
     dp_path = smooth_flow(dp_path, data['out_base_file'])
 
     write_mix(data, out_folder)
