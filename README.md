@@ -1,7 +1,7 @@
 # AVSnap
 
-This repository contains demo code for the paper <a href = "https://arxiv.org/abs/1808.06250">Dynamic Temporal Alignment of Speech to Lips </a>
-The repository forks the demo for the audio-to-video synchronisation network (<a href = "http://www.robots.ox.ac.uk/~vgg/software/lipsync/">SyncNet</a>).
+This repository contains demo code for the paper <a href = "https://arxiv.org/abs/1808.06250">Dynamic Temporal Alignment of Speech to Lips </a> (Tavi Halperin, Ariel Efrat, and Shmuel Peleg).
+The repository reuses code from the demo for the audio-to-video synchronisation network (<a href = "http://www.robots.ox.ac.uk/~vgg/software/lipsync/">SyncNet</a>).
 
 The model and code can be used for research purposes under <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution License</a>.
 Please cite the papers below if you make use of the software.
